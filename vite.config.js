@@ -1,15 +1,13 @@
 import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
 import vue from '@vitejs/plugin-vue';
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 export default defineConfig({
-    define: {
-        "global": {},
-    },
     plugins: [
         laravel({
             input: 'resources/js/app.js',
-            // ssr: 'resources/js/ssr.js',
+            ssr: 'resources/js/ssr.js',
             refresh: true,
         }),
         vue({
@@ -20,5 +18,6 @@ export default defineConfig({
                 },
             },
         }),
+        nodePolyfills(),
     ],
 });

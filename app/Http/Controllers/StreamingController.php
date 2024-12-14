@@ -18,7 +18,7 @@ class StreamingController extends Controller
 
     public function consumer(Request $request, $streamId)
     {
-        return Inertia::render('Stream');
+        return Inertia::render('Stream', ['streamId' => $streamId]);
     }
 
     public function makeStreamOffer(Request $request)
