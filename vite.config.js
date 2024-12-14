@@ -3,10 +3,13 @@ import laravel from 'laravel-vite-plugin';
 import vue from '@vitejs/plugin-vue';
 
 export default defineConfig({
+    define: {
+        "global": {},
+    },
     plugins: [
         laravel({
             input: 'resources/js/app.js',
-            ssr: 'resources/js/ssr.js',
+            // ssr: 'resources/js/ssr.js',
             refresh: true,
         }),
         vue({

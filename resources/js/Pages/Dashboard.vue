@@ -1,6 +1,17 @@
 <script setup>
 import AppLayout from '@/Layouts/AppLayout.vue';
 import Welcome from '@/Components/Welcome.vue';
+import { usePage } from '@inertiajs/vue3';
+const page = usePage()
+
+Echo.private(`App.Models.User.${page.props.auth.user.id}`)
+    .listen('OrderShipmentStatusUpdated', (e) => {
+        console.log(e.order);
+    });
+Echo.channel(`notifications.${page.props.auth.user.id}`)
+    .notification((data) => {
+        console.log(data);
+    });
 </script>
 
 <template>

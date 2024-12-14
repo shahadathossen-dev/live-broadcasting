@@ -25,6 +25,17 @@ const switchToTeam = (team) => {
 const logout = () => {
     router.post(route('logout'));
 };
+
+// console.log(props.auth);
+
+// Echo.private(`App.Models.User.${$page.props.auth.user}`)
+//     // .listen('OrderShipmentStatusUpdated', (e) => {
+//     //     console.log(e.order);
+//     // })
+//     .notification((data) => {
+//         console.log(data);
+//     });
+
 </script>
 
 <template>

@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -21,4 +22,10 @@ Route::middleware([
     Route::get('/dashboard', function () {
         return Inertia::render('Dashboard');
     })->name('dashboard');
+
+    Route::get('/broadcast', 'App\Http\Controllers\StreamingController@index');
+    Route::get('/streaming/{streamId}', 'App\Http\Controllers\StreamingController@consumer');
+    Route::post('/stream-offer', 'App\Http\Controllers\StreamingController@makeStreamOffer');
+    Route::post('/stream-answer', 'App\Http\Controllers\StreamingController@makeStreamAnswer');
 });
+
