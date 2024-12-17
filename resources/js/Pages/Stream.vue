@@ -20,13 +20,9 @@ const initializeStreamingChannel = () => {
     Echo.join(`streaming-channel.${streamId}`);
 };
 const createViewerPeer = async (incomingOffer, broadcaster) => {
-    const stream = await getPermissions();
-    videoStream2.value.srcObject = stream;
-
     const peer = new Peer({
         initiator: false,
         trickle: false,
-        stream: stream,
         config: {
             iceServers: [
                 {

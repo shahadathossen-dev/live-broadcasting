@@ -9,6 +9,7 @@ const page = usePage();
 const authUser = page.props.auth.user;
 const videoStream = ref(null);
 const userStream = ref(null);
+const broadcasterId = ref(null);
 const isVisibleLink = ref(false);
 const roomId = ref('9kzm6dto');
 const streamingUsers = ref([]);
@@ -26,21 +27,26 @@ const streamId = ref(Math.random().toString(36).substring(2,10));
 
 console.log(streamId.value);
 
-const startStream = () => {
+const startChat = async () => {
     // microphone and camera permissions
-    
-    initializeStreamingChannel();
+    const stream = await getPermissions();
+    videoStream.value.srcObject = stream;
+
+    initializeStreamingChannel(true);
     initializeSignalAnswerChannel(); // a private channel where the broadcaster listens to incoming signalling answer
     isVisibleLink.value = true;
 };
-const initializeStreamingChannel = async () => {
+
+const joinChat = async () => {
+    // microphone and camera permissions
     const stream = await getPermissions();
     videoStream.value.srcObject = stream;
-    const Peer = peerCreator(stream, authUser, true)
-    Peer.create();
-    Peer.initEvents();
-    allPeers[authUser.id] = Peer;
 
+    initializeStreamingChannel();
+    initializeSignalOfferChannel();
+    
+};
+const initializeStreamingChannel = async (initiator = false) => {
 Echo.join(`streaming-channel.${roomId.value}`)
     .here((users) => {
         console.log('all users', users);
@@ -59,7 +65,8 @@ Echo.join(`streaming-channel.${roomId.value}`)
             currentlyConnectedUser.value = user.id;
             allPeers[user.id] = peerCreator(
                 videoStream.value.srcObject,
-                user
+                user,
+                initiator
             )
             // Create Peer
             allPeers[user.id].create();
@@ -85,7 +92,7 @@ Echo.join(`streaming-channel.${roomId.value}`)
         }
     });
 };
-const signalCallback = (offer, user) => {
+const offerChat = (offer, user) => {
     axios
         .post("/stream-offer", {
             broadcaster: authUser.id,
@@ -122,10 +129,10 @@ const peerCreator = (stream, user, initiator = false) => {
             });
         },
         getPeer: () => peer,
-        initEvents: () => {
+        initEvents: (incomingOffer = null) => {
             peer.on("signal", (offer) => {
                 // send offer over here.
-                initiator ? signalCallback(offer, user) : acceptOffer();
+                initiator ? offerChat(offer, user) : answerChat(offer, broadcasterId.value);
             });
             peer.on("stream", (stream) => {
                 console.log("onStream");
@@ -147,7 +154,13 @@ const peerCreator = (stream, user, initiator = false) => {
                 console.log("handle error gracefully");
             });
 
-            initiator || initializeSignalOfferChannel(peer)
+            if(!initiator) {
+                const updatedOffer = {
+                    ...incomingOffer,
+                    sdp: `${incomingOffer.sdp}\n`,
+                };
+                peer.signal(updatedOffer);
+            }
         },
 
     };
@@ -172,7 +185,7 @@ Echo.private(`stream-signal-channel.${authUser.id}`)
     );
 };
 
-const acceptOffer =(peer, incomingOffer, broadcaster, cleanupCallback) => {
+const answerChat =(incomingOffer, broadcaster) => {
     // peer.on("signal", (data) => {
         axios
             .post("/stream-answer", {
@@ -204,20 +217,23 @@ const acceptOffer =(peer, incomingOffer, broadcaster, cleanupCallback) => {
     // peer.on("error", (err) => {
     //     console.log("handle error gracefully");
     // });
-    const updatedOffer = {
-        ...incomingOffer,
-        sdp: `${incomingOffer.sdp}\n`,
-    };
-    peer.signal(updatedOffer);
+
 };
 
-const initializeSignalOfferChannel = (peer) => {
-
+const initializeSignalOfferChannel = () => {
+    
     Echo.private(`stream-signal-channel.${authUser.id}`)
         .listen("StreamOffer", ({ data }) => {
             console.log("Signal Offer from private channel");
-            // broadcasterId.value = data.broadcaster;
-            acceptOffer(peer, data.offer, data.broadcaster);
+            broadcasterId.value = data.broadcaster;
+            const peerConstructor = peerCreator(
+                videoStream.value.srcObject,
+                authUser
+            )
+            // Create Peer
+            peerConstructor.create();
+            // Initialize Events
+            peerConstructor.initEvents(data.offer);
         });
 };
 
@@ -241,13 +257,16 @@ const removeBroadcastVideo = () => {
         </template>
 
         <div class="py-12">
-            <button @click="startStream" class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
+            <button @click="startChat" class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
                 Start
+            </button>
+            <button @click="joinChat" class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
+                Join
             </button>
             <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
                 <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-xl sm:rounded-lg">
                     <video autoplay muted ref="videoStream"></video>
-                    <video autoplay muted ref="userStream"></video>
+                    <video autoplay ref="userStream"></video>
                     <!-- <video autoplay v-for="peer in Object.values(allPeers)" :srcObject="peer.stream"></video> -->
                 </div>
             </div>
