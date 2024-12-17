@@ -8,6 +8,7 @@ const page = usePage();
 const authUser = page.props.auth.user;
 const streamId = page.props.streamId;
 const videoStream = ref(null);
+const videoStream2 = ref(null);
 const broadcasterId = ref(null);
 const broadcasterPeer = ref(null);
 
@@ -18,10 +19,14 @@ const joinBroadcast = () => {
 const initializeStreamingChannel = () => {
     Echo.join(`streaming-channel.${streamId}`);
 };
-const createViewerPeer = (incomingOffer, broadcaster) => {
+const createViewerPeer = async (incomingOffer, broadcaster) => {
+    const stream = await getPermissions();
+    videoStream2.value.srcObject = stream;
+
     const peer = new Peer({
         initiator: false,
         trickle: false,
+        stream: stream,
         config: {
             iceServers: [
                 {
@@ -49,17 +54,17 @@ const createViewerPeer = (incomingOffer, broadcaster) => {
 };
 const handlePeerEvents =(peer, incomingOffer, broadcaster, cleanupCallback) => {
     peer.on("signal", (data) => {
-    axios
-        .post("/stream-answer", {
-        broadcaster,
-        answer: data,
-        })
-        .then((res) => {
-            console.log(res);
-        })
-        .catch((err) => {
-            console.log(err);
-        });
+        axios
+            .post("/stream-answer", {
+            broadcaster,
+            answer: data,
+            })
+            .then((res) => {
+                console.log(res);
+            })
+            .catch((err) => {
+                console.log(err);
+            });
     });
     peer.on("stream", (stream) => {
         // display remote stream
@@ -85,13 +90,15 @@ const handlePeerEvents =(peer, incomingOffer, broadcaster, cleanupCallback) => {
     };
     peer.signal(updatedOffer);
 };
+
 const initializeSignalOfferChannel = () => {
-Echo.private(`stream-signal-channel.${authUser.id}`)
-    .listen("StreamOffer", ({ data }) => {
-        console.log("Signal Offer from private channel");
-        broadcasterId.value = data.broadcaster;
-        createViewerPeer(data.offer, data.broadcaster);
-    });
+
+    Echo.private(`stream-signal-channel.${authUser.id}`)
+        .listen("StreamOffer", ({ data }) => {
+            console.log("Signal Offer from private channel");
+            broadcasterId.value = data.broadcaster;
+            createViewerPeer(data.offer, data.broadcaster);
+        });
 };
 const removeBroadcastVideo = () => {
     console.log("removingBroadcast Video");

@@ -8,7 +8,9 @@ const page = usePage();
 
 const authUser = page.props.auth.user;
 const videoStream = ref(null);
+const userStream = ref(null);
 const isVisibleLink = ref(false);
+const roomId = ref('9kzm6dto');
 const streamingUsers = ref([]);
 const allPeers = reactive({});
 const currentlyConnectedUser = ref(null);
@@ -24,17 +26,25 @@ const streamId = ref(Math.random().toString(36).substring(2,10));
 
 console.log(streamId.value);
 
-const startStream = async() => {
+const startStream = () => {
     // microphone and camera permissions
-    const stream = await getPermissions();
-    videoStream.value.srcObject = stream;
+    
     initializeStreamingChannel();
     initializeSignalAnswerChannel(); // a private channel where the broadcaster listens to incoming signalling answer
     isVisibleLink.value = true;
 };
-const initializeStreamingChannel = () => {
-Echo.join(`streaming-channel.${streamId.value}`)
+const initializeStreamingChannel = async () => {
+    const stream = await getPermissions();
+    videoStream.value.srcObject = stream;
+    const Peer = peerCreator(stream, authUser, true)
+    Peer.create();
+    Peer.initEvents();
+    allPeers[authUser.id] = Peer;
+
+Echo.join(`streaming-channel.${roomId.value}`)
     .here((users) => {
+        console.log('all users', users);
+        
         streamingUsers.value = users;
     })
     .joining((user) => {
@@ -49,8 +59,7 @@ Echo.join(`streaming-channel.${streamId.value}`)
             currentlyConnectedUser.value = user.id;
             allPeers[user.id] = peerCreator(
                 videoStream.value.srcObject,
-                user,
-                signalCallback
+                user
             )
             // Create Peer
             allPeers[user.id].create();
@@ -78,64 +87,69 @@ Echo.join(`streaming-channel.${streamId.value}`)
 };
 const signalCallback = (offer, user) => {
     axios
-    .post("/stream-offer", {
-        broadcaster: authUser.id,
-        receiver: user,
-        offer,
-    })
-    .then((res) => {
-        console.log('here', res);
-    })
-    .catch((err) => {
-        console.log(err);
-    });
+        .post("/stream-offer", {
+            broadcaster: authUser.id,
+            receiver: user,
+            offer,
+        })
+        .then((res) => {
+            console.log('here', res);
+        })
+        .catch((err) => {
+            console.log(err);
+        });
 };
-const peerCreator = (stream, user, signalCallback) => {
+const peerCreator = (stream, user, initiator = false) => {
     let peer;
     return {
-    create: () => {
-        peer = new Peer({
-            initiator: true,
-            trickle: false,
-            stream: stream,
-            config: {
-                iceServers: [
-                    {
-                        urls: ["stun:stun.stunprotocol.org", "stun:stun1.l.google.com:19302"],
-                    },
-                    // {
-                    //     urls: [process.env.TURN_SERVER_HOST],
-                    //     username: process.env.TURN_SERVER_USER,
-                    //     credential: process.env.TURN_SERVER_CRED,
-                    // },
-                ],
-            },
-        });
-    },
-    getPeer: () => peer,
-    initEvents: () => {
-        peer.on("signal", (data) => {
-            // send offer over here.
-            signalCallback(data, user);
-        });
-        peer.on("stream", (stream) => {
-            console.log("onStream");
-        });
-        peer.on("track", (track, stream) => {
-            console.log("onTrack");
-        });
-        peer.on("connect", () => {
-            console.log("Broadcaster Peer connected");
-        });
-        peer.on("close", () => {
-            console.log("Broadcaster Peer closed");
-        });
-        peer.on("error", (err) => {
-            console.log(err);
-            
-            console.log("handle error gracefully");
-        });
-    },
+        create: () => {
+            peer = new Peer({
+                initiator: initiator,
+                trickle: false,
+                stream: stream,
+                config: {
+                    iceServers: [
+                        {
+                            urls: ["stun:stun.stunprotocol.org", "stun:stun1.l.google.com:19302"],
+                        },
+                        // {
+                        //     urls: [process.env.TURN_SERVER_HOST],
+                        //     username: process.env.TURN_SERVER_USER,
+                        //     credential: process.env.TURN_SERVER_CRED,
+                        // },
+                    ],
+                },
+            });
+        },
+        getPeer: () => peer,
+        initEvents: () => {
+            peer.on("signal", (offer) => {
+                // send offer over here.
+                initiator ? signalCallback(offer, user) : acceptOffer();
+            });
+            peer.on("stream", (stream) => {
+                console.log("onStream");
+                userStream.value.srcObject = stream;
+            });
+            peer.on("track", (track, stream) => {
+                console.log("onTrack");
+            });
+            peer.on("connect", () => {
+                console.log("Broadcaster Peer connected");
+            });
+            peer.on("close", (data) => {
+                console.log("Broadcaster Peer closed", data);
+                removeBroadcastVideo();
+            });
+            peer.on("error", (err) => {
+                console.log(err);
+                
+                console.log("handle error gracefully");
+            });
+
+            initiator || initializeSignalOfferChannel(peer)
+        },
+
     };
 }
 const initializeSignalAnswerChannel = () => {
@@ -158,7 +172,64 @@ Echo.private(`stream-signal-channel.${authUser.id}`)
     );
 };
 
+const acceptOffer =(peer, incomingOffer, broadcaster, cleanupCallback) => {
+    // peer.on("signal", (data) => {
+        axios
+            .post("/stream-answer", {
+            broadcaster,
+            answer: incomingOffer,
+            })
+            .then((res) => {
+                console.log(res);
+            })
+            .catch((err) => {
+                console.log(err);
+            });
+    // });
+    // peer.on("stream", (stream) => {
+    //     // display remote stream
+    //     videoStream.value.srcObject = stream;
+    // });
+    // peer.on("track", (track, stream) => {
+    //     console.log("onTrack");
+    // });
+    // peer.on("connect", () => {
+    //     console.log("Viewer Peer connected");
+    // });
+    // peer.on("close", () => {
+    //     console.log("Viewer Peer closed");
+    //     peer.destroy();
+    //     cleanupCallback();
+    // });
+    // peer.on("error", (err) => {
+    //     console.log("handle error gracefully");
+    // });
+    const updatedOffer = {
+        ...incomingOffer,
+        sdp: `${incomingOffer.sdp}\n`,
+    };
+    peer.signal(updatedOffer);
+};
 
+const initializeSignalOfferChannel = (peer) => {
+
+    Echo.private(`stream-signal-channel.${authUser.id}`)
+        .listen("StreamOffer", ({ data }) => {
+            console.log("Signal Offer from private channel");
+            // broadcasterId.value = data.broadcaster;
+            acceptOffer(peer, data.offer, data.broadcaster);
+        });
+};
+
+const removeBroadcastVideo = () => {
+    console.log("removingBroadcast Video");
+    alert("Livestream ended by broadcaster");
+    const tracks = videoStream.value.srcObject.getTracks();
+    tracks.forEach((track) => {
+        track.stop();
+    });
+    videoStream.value.srcObject = null;
+};
 </script>
 
 <template>
@@ -176,6 +247,8 @@ Echo.private(`stream-signal-channel.${authUser.id}`)
             <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
                 <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-xl sm:rounded-lg">
                     <video autoplay muted ref="videoStream"></video>
+                    <video autoplay muted ref="userStream"></video>
+                    <!-- <video autoplay v-for="peer in Object.values(allPeers)" :srcObject="peer.stream"></video> -->
                 </div>
             </div>
         </div>
