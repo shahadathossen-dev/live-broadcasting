@@ -30,5 +30,5 @@ Route::get('/user', function (Request $request) {
 })->middleware('auth:sanctum');
 
 Route::get('/notify', function (Request $request) {
-    return $request->user()->notify(new SampleNotification(auth()->user()));
+    return $request->user()->notify(new SampleNotification($request->user()));
 })->middleware('auth:sanctum');

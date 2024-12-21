@@ -13,7 +13,7 @@ Broadcast::channel('notifications.{id}', function (User $user, $id) {
 
 // Dynamic Presence Channel for Streaming
 Broadcast::channel('streaming-channel.{streamId}', function ($user) {
-    return ['id' => $user->id, 'name' => $user->name];
+    return ['id' => $user->id, 'name' => $user->name, 'initiator' => $user->id == 1];
 });
 
 // Signaling Offer and Answer Channels

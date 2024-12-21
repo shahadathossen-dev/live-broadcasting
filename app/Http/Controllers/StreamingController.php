@@ -33,6 +33,7 @@ class StreamingController extends Controller
     public function makeStreamAnswer(Request $request)
     {
         $data['broadcaster'] = $request->broadcaster;
+        $data['user'] = $request->user()->id;
         $data['answer'] = $request->answer;
         event(new StreamAnswer($data));
     }

@@ -7,7 +7,9 @@ export default defineConfig({
     // server: {
     //     https: true, // Enable HTTPS
     //     hmr: {
-    //         host: 'factually-clean-pig.ngrok-free.app',
+    //         host: 'smartexecutive.test'
+    //         // host: 'factually-clean-pig.ngrok-free.app',
+               // detectTls: 'smartexecutive.test'
     //     },
     // },
     plugins: [
@@ -15,7 +17,8 @@ export default defineConfig({
             input: 'resources/js/app.js',
             ssr: 'resources/js/ssr.js',
             refresh: true,
-            // detectTls: 'https://factually-clean-pig.ngrok-free.app'
+            // detectTls: 'https://factually-clean-pig.ngrok-free.app',
+            // detectTls: 'https://smartexecutive.test'
         }),
         vue({
             template: {

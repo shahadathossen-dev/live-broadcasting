@@ -13,7 +13,6 @@ const broadcasterId = ref(null);
 const isVisibleLink = ref(false);
 const streamingUsers = ref([]);
 const allPeers = reactive({});
-const currentlyConnectedUser = ref(null);
 // const roomId = ref(Math.random().toString(36).substring(2,10));
 const roomId = ref('9kzm6dto');
 
@@ -22,7 +21,7 @@ const startChat = async () => {
     const stream = await getPermissions();
     videoStream.value.srcObject = stream;
 
-    initializeStreamingChannel(true);
+    initializeStreamingChannel();
     listenSignalAnswerChannel(); // a private channel where the broadcaster listens to incoming signalling answer
     // listenSignalOfferChannel();
     isVisibleLink.value = true;
@@ -33,12 +32,50 @@ const joinChat = async () => {
     const stream = await getPermissions();
     videoStream.value.srcObject = stream;
 
-    initializeStreamingChannel();
+    joinStreamingChannel();
     listenSignalOfferChannel();
-    // listenSignalAnswerChannel(); // a private channel where the broadcaster listens to incoming signalling answer
+    listenSignalAnswerChannel(); // a private channel where the broadcaster listens to incoming signalling answer
     
 };
-const initializeStreamingChannel = async (initiator = false) => {
+
+const joinStreamingChannel = async (initiator = false) => {
+Echo.join(`streaming-channel.${roomId.value}`)
+    .here((users) => {
+        console.log('all users', users);
+        
+        streamingUsers.value = users;
+        // if this new user is not already on the call, send your stream offer
+        const otherUsers = streamingUsers.value.filter(
+            (user) => user.id !== authUser.id && !user.initiator
+        );
+
+        console.log('otherUsers', otherUsers);
+        
+        otherUsers.forEach(user => createPeer(user, true));
+    })
+    .joining((user) => {
+        console.log("New User", user);
+    })
+    .leaving((user) => {
+        console.log(user.name, "Left");
+        // destroy peer
+        allPeers[user.id].getPeer().destroy();
+        // delete peer object
+        delete allPeers[user.id];
+        // if one leaving is the broadcaster set streamingUsers to empty array
+        if (user.id === authUser.id) {
+            streamingUsers.value = [];
+        } else {
+            // remove from streamingUsers array
+            const leavingUserIndex = streamingUsers.findIndex(
+                (data) => data.id === user.id
+            );
+            streamingUsers.value.splice(leavingUserIndex, 1);
+        }
+    });
+};
+
+const initializeStreamingChannel = async () => {
 Echo.join(`streaming-channel.${roomId.value}`)
     .here((users) => {
         console.log('all users', users);
@@ -46,24 +83,14 @@ Echo.join(`streaming-channel.${roomId.value}`)
         streamingUsers.value = users;
     })
     .joining((user) => {
-        console.log("New User", user);
-        // if this new user is not already on the call, send your stream offer
+        console.log("New User Joining", user);
+        // // if this new user is not already on the call, send your stream offer
         const joiningUserIndex = streamingUsers.value.findIndex(
             (data) => data.id === user.id
         );
         if (joiningUserIndex < 0) {
+            createPeer(user, true);
             streamingUsers.value.push(user);
-            // A new user just joined the channel so signal that user
-            currentlyConnectedUser.value = user.id;
-            allPeers[user.id] = peerCreator(
-                videoStream.value.srcObject,
-                user,
-                initiator
-            )
-            // Create Peer
-            allPeers[user.id].create();
-            // Initialize Events
-            allPeers[user.id].initEvents();
         }
     })
     .leaving((user) => {
@@ -78,16 +105,30 @@ Echo.join(`streaming-channel.${roomId.value}`)
         } else {
             // remove from streamingUsers array
             const leavingUserIndex = streamingUsers.findIndex(
-            (data) => data.id === user.id
+                (data) => data.id === user.id
             );
             streamingUsers.value.splice(leavingUserIndex, 1);
         }
     });
 };
+const createPeer = (user, initiator = false) => {
+    console.log('createPeer', user);
+    
+    // A new user just joined the channel so signal that user
+    allPeers[user.id] = peerCreator(
+        videoStream.value.srcObject,
+        user,
+        initiator
+    )
+    // Create Peer
+    allPeers[user.id].create();
+    // Initialize Events
+    allPeers[user.id].initEvents();
+}
 const listenSignalAnswerChannel = () => {
 Echo.private(`stream-signal-channel.${authUser.id}`)
     .listen("StreamAnswer", ({ data }) => {
-        console.log("Signal Answer from private channel");
+        console.log("Signal Answer from private channel", data.user);
         if (data.answer.renegotiate) {
             console.log("renegotating");
         }
@@ -96,14 +137,18 @@ Echo.private(`stream-signal-channel.${authUser.id}`)
                 ...data.answer,
                 sdp: `${data.answer.sdp}\n`,
             };
-            allPeers[currentlyConnectedUser.value]
+            console.log(authUser.id);
+            
+            allPeers[data.user]
                 .getPeer()
                 .signal(updatedSignal);
+            }
         }
-    });
+    );
 };
 const offerChat = (offer, user) => {
-    console.log('stream offer');
+    console.log('offerChat', user);
+    
     axios
         .post("/stream-offer", {
             broadcaster: authUser.id,
@@ -143,15 +188,15 @@ const peerCreator = (stream, user, initiator = false) => {
         getPeer: () => peer,
         initEvents: (incomingOffer = null) => {
             peer.on("signal", (offer) => {
-                console.log('signal offer');
-                
                 // send or accept offer over here.
-                incomingOffer ? answerChat(offer, broadcasterId.value) : offerChat(offer, user);
+                incomingOffer ? answerChat(offer, user) : offerChat(offer, user);
             });
             peer.on("stream", (stream) => {
-                console.log("onStream");
+                console.log("onStream", user);
+                console.log(allPeers);
+                
                 // userStream.value.srcObject = stream;
-                allPeers[user.id].stream = stream;
+                allPeers[incomingOffer ? user : user.id].stream = stream;
             });
             peer.on("track", (track, stream) => {
                 console.log("onTrack");
@@ -170,8 +215,6 @@ const peerCreator = (stream, user, initiator = false) => {
             });
 
             if(incomingOffer) {
-                console.log('incomingOffer');
-                
                 const updatedOffer = {
                     ...incomingOffer,
                     sdp: `${incomingOffer.sdp}\n`,
@@ -185,51 +228,31 @@ const peerCreator = (stream, user, initiator = false) => {
 const listenSignalOfferChannel = () => {
     Echo.private(`stream-signal-channel.${authUser.id}`)
         .listen("StreamOffer", ({ data }) => {
-            console.log("Signal Offer from private channel");
+            console.log("Signal Offer from private channel", data.broadcaster);
             broadcasterId.value = data.broadcaster;
-            const peerConstructor = peerCreator(
+            allPeers[data.broadcaster] = peerCreator(
                 videoStream.value.srcObject,
-                authUser
+                data.broadcaster
             )
             // Create Peer
-            peerConstructor.create();
+            allPeers[data.broadcaster].create();
             // Initialize Events
-            peerConstructor.initEvents(data.offer);
+            allPeers[data.broadcaster].initEvents(data.offer);
         });
 };
-const answerChat =(incomingOffer, broadcaster) => {
-    // peer.on("signal", (data) => {
-        axios
-            .post("/stream-answer", {
+const answerChat =(offer, broadcaster) => {
+    console.log('answerChat', broadcaster);
+    axios
+        .post("/stream-answer", {
             broadcaster,
-            answer: incomingOffer,
-            })
-            .then((res) => {
-                console.log(res);
-            })
-            .catch((err) => {
-                console.log(err);
-            });
-    // });
-    // peer.on("stream", (stream) => {
-    //     // display remote stream
-    //     videoStream.value.srcObject = stream;
-    // });
-    // peer.on("track", (track, stream) => {
-    //     console.log("onTrack");
-    // });
-    // peer.on("connect", () => {
-    //     console.log("Viewer Peer connected");
-    // });
-    // peer.on("close", () => {
-    //     console.log("Viewer Peer closed");
-    //     peer.destroy();
-    //     cleanupCallback();
-    // });
-    // peer.on("error", (err) => {
-    //     console.log("handle error gracefully");
-    // });
-
+            answer: offer,
+        })
+        .then((res) => {
+            console.log(res);
+        })
+        .catch((err) => {
+            console.log(err);
+        });
 };
 const removeBroadcastVideo = () => {
     console.log("removingBroadcast Video");
