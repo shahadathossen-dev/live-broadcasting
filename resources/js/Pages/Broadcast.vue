@@ -11,21 +11,11 @@ const videoStream = ref(null);
 const userStream = ref(null);
 const broadcasterId = ref(null);
 const isVisibleLink = ref(false);
-const roomId = ref('9kzm6dto');
 const streamingUsers = ref([]);
 const allPeers = reactive({});
 const currentlyConnectedUser = ref(null);
-const streamId = ref(Math.random().toString(36).substring(2,10));
-// Echo.private(`App.Models.User.${page.props.auth.user.id}`)
-//     .listen('OrderShipmentStatusUpdated', (e) => {
-//         console.log(e.order);
-//     });
-// Echo.channel(`notifications.${page.props.auth.user.id}`)
-//     .notification((data) => {
-//         console.log(data);
-//     });
-
-console.log(streamId.value);
+// const roomId = ref(Math.random().toString(36).substring(2,10));
+const roomId = ref('9kzm6dto');
 
 const startChat = async () => {
     // microphone and camera permissions
@@ -33,7 +23,8 @@ const startChat = async () => {
     videoStream.value.srcObject = stream;
 
     initializeStreamingChannel(true);
-    initializeSignalAnswerChannel(); // a private channel where the broadcaster listens to incoming signalling answer
+    listenSignalAnswerChannel(); // a private channel where the broadcaster listens to incoming signalling answer
+    // listenSignalOfferChannel();
     isVisibleLink.value = true;
 };
 
@@ -43,7 +34,8 @@ const joinChat = async () => {
     videoStream.value.srcObject = stream;
 
     initializeStreamingChannel();
-    initializeSignalOfferChannel();
+    listenSignalOfferChannel();
+    // listenSignalAnswerChannel(); // a private channel where the broadcaster listens to incoming signalling answer
     
 };
 const initializeStreamingChannel = async (initiator = false) => {
@@ -92,7 +84,26 @@ Echo.join(`streaming-channel.${roomId.value}`)
         }
     });
 };
+const listenSignalAnswerChannel = () => {
+Echo.private(`stream-signal-channel.${authUser.id}`)
+    .listen("StreamAnswer", ({ data }) => {
+        console.log("Signal Answer from private channel");
+        if (data.answer.renegotiate) {
+            console.log("renegotating");
+        }
+        if (data.answer.sdp) {
+            const updatedSignal = {
+                ...data.answer,
+                sdp: `${data.answer.sdp}\n`,
+            };
+            allPeers[currentlyConnectedUser.value]
+                .getPeer()
+                .signal(updatedSignal);
+        }
+    });
+};
 const offerChat = (offer, user) => {
+    console.log('stream offer');
     axios
         .post("/stream-offer", {
             broadcaster: authUser.id,
@@ -106,6 +117,7 @@ const offerChat = (offer, user) => {
             console.log(err);
         });
 };
+
 const peerCreator = (stream, user, initiator = false) => {
     let peer;
     return {
@@ -131,12 +143,15 @@ const peerCreator = (stream, user, initiator = false) => {
         getPeer: () => peer,
         initEvents: (incomingOffer = null) => {
             peer.on("signal", (offer) => {
-                // send offer over here.
-                initiator ? offerChat(offer, user) : answerChat(offer, broadcasterId.value);
+                console.log('signal offer');
+                
+                // send or accept offer over here.
+                incomingOffer ? answerChat(offer, broadcasterId.value) : offerChat(offer, user);
             });
             peer.on("stream", (stream) => {
                 console.log("onStream");
-                userStream.value.srcObject = stream;
+                // userStream.value.srcObject = stream;
+                allPeers[user.id].stream = stream;
             });
             peer.on("track", (track, stream) => {
                 console.log("onTrack");
@@ -154,7 +169,9 @@ const peerCreator = (stream, user, initiator = false) => {
                 console.log("handle error gracefully");
             });
 
-            if(!initiator) {
+            if(incomingOffer) {
+                console.log('incomingOffer');
+                
                 const updatedOffer = {
                     ...incomingOffer,
                     sdp: `${incomingOffer.sdp}\n`,
@@ -165,26 +182,21 @@ const peerCreator = (stream, user, initiator = false) => {
 
     };
 }
-const initializeSignalAnswerChannel = () => {
-Echo.private(`stream-signal-channel.${authUser.id}`)
-    .listen("StreamAnswer", ({ data }) => {
-            console.log("Signal Answer from private channel");
-        if (data.answer.renegotiate) {
-            console.log("renegotating");
-        }
-        if (data.answer.sdp) {
-            const updatedSignal = {
-                ...data.answer,
-                sdp: `${data.answer.sdp}\n`,
-            };
-            allPeers[currentlyConnectedUser.value]
-                .getPeer()
-                .signal(updatedSignal);
-            }
-        }
-    );
+const listenSignalOfferChannel = () => {
+    Echo.private(`stream-signal-channel.${authUser.id}`)
+        .listen("StreamOffer", ({ data }) => {
+            console.log("Signal Offer from private channel");
+            broadcasterId.value = data.broadcaster;
+            const peerConstructor = peerCreator(
+                videoStream.value.srcObject,
+                authUser
+            )
+            // Create Peer
+            peerConstructor.create();
+            // Initialize Events
+            peerConstructor.initEvents(data.offer);
+        });
 };
-
 const answerChat =(incomingOffer, broadcaster) => {
     // peer.on("signal", (data) => {
         axios
@@ -219,24 +231,6 @@ const answerChat =(incomingOffer, broadcaster) => {
     // });
 
 };
-
-const initializeSignalOfferChannel = () => {
-    
-    Echo.private(`stream-signal-channel.${authUser.id}`)
-        .listen("StreamOffer", ({ data }) => {
-            console.log("Signal Offer from private channel");
-            broadcasterId.value = data.broadcaster;
-            const peerConstructor = peerCreator(
-                videoStream.value.srcObject,
-                authUser
-            )
-            // Create Peer
-            peerConstructor.create();
-            // Initialize Events
-            peerConstructor.initEvents(data.offer);
-        });
-};
-
 const removeBroadcastVideo = () => {
     console.log("removingBroadcast Video");
     alert("Livestream ended by broadcaster");
@@ -264,10 +258,14 @@ const removeBroadcastVideo = () => {
                 Join
             </button>
             <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-                <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-xl sm:rounded-lg">
-                    <video autoplay muted ref="videoStream"></video>
-                    <video autoplay ref="userStream"></video>
-                    <!-- <video autoplay v-for="peer in Object.values(allPeers)" :srcObject="peer.stream"></video> -->
+                <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-xl sm:rounded-lg flex flex-wrap">
+                    <div class="stream-windwo">
+                        <video autoplay muted ref="videoStream"></video>
+                    </div>
+                    <!-- <video autoplay ref="userStream"></video> -->
+                     <div class="stream-window" v-for="(peer, index) in Object.values(allPeers)" :key="index">
+                         <video autoplay :srcObject="peer.stream"></video>
+                     </div>
                 </div>
             </div>
         </div>
