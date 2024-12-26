@@ -8,29 +8,45 @@ const page = usePage();
 
 const authUser = page.props.auth.user;
 const videoStream = ref(null);
+const recordedVideo = ref(null);
+const stream = ref(null);
+const recorder = ref(null);
+const chunks = ref([]);
 const isVisibleLink = ref(false);
 const streamingUsers = ref([]);
 const allPeers = reactive({});
 const currentlyConnectedUser = ref(null);
 const streamId = ref(Math.random().toString(36).substring(2,10));
-// Echo.private(`App.Models.User.${page.props.auth.user.id}`)
-//     .listen('OrderShipmentStatusUpdated', (e) => {
-//         console.log(e.order);
-//     });
-// Echo.channel(`notifications.${page.props.auth.user.id}`)
-//     .notification((data) => {
-//         console.log(data);
-//     });
 
 console.log(streamId.value);
 
 const startStream = async() => {
     // microphone and camera permissions
-    const stream = await getPermissions();
-    videoStream.value.srcObject = stream;
+    stream.value = await getPermissions();
+    videoStream.value.srcObject = stream.value;
     initializeStreamingChannel();
     initializeSignalAnswerChannel(); // a private channel where the broadcaster listens to incoming signalling answer
     isVisibleLink.value = true;
+
+    recorder.value = new MediaRecorder(stream.value);
+    recorder.value.start();
+    recorder.value.ondataavailable = e => {
+      chunks.value.push(e.data);
+    };
+
+    recorder.value.onstop = e => {
+      uploadToServer();
+    };
+    
+};
+
+const stopStream = async() => {
+    recorder.value.stop();
+
+    stream.value.getTracks().forEach((track) => {
+        track.stop();
+    });
+
 };
 const initializeStreamingChannel = () => {
 Echo.join(`streaming-channel.${streamId.value}`)
@@ -158,7 +174,19 @@ Echo.private(`stream-signal-channel.${authUser.id}`)
     );
 };
 
+const uploadToServer = () => {
+    const blob = new Blob( 
+        chunks.value, { 
+            type: "video/mp4"
+        }
+    );
 
+    const recordedMediaURL = window.URL.createObjectURL(blob); 
+    console.log(recordedMediaURL);
+    recordedVideo.value.src = recordedMediaURL;
+    chunks.value = [];
+    
+}
 </script>
 
 <template>
@@ -173,9 +201,15 @@ Echo.private(`stream-signal-channel.${authUser.id}`)
             <button @click="startStream" class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
                 Start
             </button>
+            <button @click="stopStream" class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
+                Stop
+            </button>
             <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
                 <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-xl sm:rounded-lg">
                     <video autoplay muted ref="videoStream"></video>
+                </div>
+                <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-xl sm:rounded-lg">
+                    <video controls ref="recordedVideo"></video>
                 </div>
             </div>
         </div>
